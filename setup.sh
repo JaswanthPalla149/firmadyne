@@ -44,6 +44,8 @@ sudo -u postgres psql -d firmware < ./firmadyne/database/schema
 
 # Download firmadyne binaries
 pushd firmadyne
+sudo apt-get install binwalk
+sudo apt-get install tkinterdnd2
 ./download.sh
 popd
 
