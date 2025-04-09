@@ -46,6 +46,7 @@ sudo -u postgres psql -d firmware < ./firmadyne/database/schema
 pushd firmadyne
 sudo apt-get install binwalk
 sudo apt-get install tkinterdnd2
+sudo apt update && sudo apt install -y python3 python3-pip python3-tk pexpect
 ./download.sh
 popd
 
