@@ -5,6 +5,8 @@ import pexpect
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
+import threading
+
 try:
     from tkinterdnd2 import TkinterDnD, DND_FILES
 except ImportError:
@@ -24,6 +26,7 @@ class FirmadyneGUI:
         
         self._create_widgets()
         self._check_firmadyne_structure()
+
     def _check_firmadyne_structure(self):
         """Verify required directories exist"""
         required = ["sources/extractor", "scripts", "images"]
@@ -168,6 +171,7 @@ class FirmadyneGUI:
                     return
             env = os.environ.copy()
             env["PGPASSWORD"] = self.db_password
+            
             # Analyze architecture
             self.status_var.set("Getting architecture...")
             self.root.update()
@@ -266,28 +270,109 @@ export PGPASSWORD='{self.db_password}'
                 print("STDOUT:", p.stdout)
                 print("STDERR:", p.stderr)
                 print("Return code:", p.returncode)
-                # Step 4: Emulate firmware
-                self.status_var.set("Starting emulation...")
-                self.root.update()
                 
+                # Step 4: Emulate firmware and run analyses
+                self.status_var.set("Starting emulation and analyses...")
+                self.root.update()
+
                 run_script_path = os.path.join(self.firmadyne_path, f"scratch/{image_name}/run.sh")
                 if not os.path.exists(run_script_path):
                     raise Exception("Run script not found")
-                
-                # Run in a new terminal window so user can interact
-                if sys.platform == "linux":
-                    subprocess.Popen(["x-terminal-emulator", "-e", run_script_path])
-                elif sys.platform == "darwin":
-                    subprocess.Popen(["open", "-a", "Terminal", run_script_path])
-                else:
-                    subprocess.Popen(run_script_path)
-                
-                messagebox.showinfo(
-                    "Emulation Started",
-                    f"Firmware {image_name} emulation started in new window\n"
-                    f"Kernel logs: ./scratch/{image_name}/qemu.initial.serial.log"
-                )
-                self.status_var.set("Emulation running")
+
+                # Create a new window for showing analysis results
+                analysis_window = tk.Toplevel(self.root)
+                analysis_window.title("Analysis Results")
+                analysis_window.geometry("800x600")
+
+                # Create text widgets for each analysis output
+                notebook = ttk.Notebook(analysis_window)
+                notebook.pack(fill='both', expand=True)
+
+                # Frames for each analysis tab
+                emulation_tab = tk.Frame(notebook)
+                snmp_tab = tk.Frame(notebook)
+                web_tab = tk.Frame(notebook)
+                nmap_tab = tk.Frame(notebook)
+
+                notebook.add(emulation_tab, text="Emulation")
+                notebook.add(snmp_tab, text="SNMP")
+                notebook.add(web_tab, text="Web Access")
+                notebook.add(nmap_tab, text="NMAP")
+
+                # Text widgets with scrollbars
+                def create_output_widget(parent):
+                    frame = tk.Frame(parent)
+                    scroll = tk.Scrollbar(frame)
+                    text = tk.Text(frame, wrap=tk.WORD, yscrollcommand=scroll.set)
+                    scroll.config(command=text.yview)
+                    scroll.pack(side=tk.RIGHT, fill=tk.Y)
+                    text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                    frame.pack(fill=tk.BOTH, expand=True)
+                    return text
+
+                emulation_output = create_output_widget(emulation_tab)
+                snmp_output = create_output_widget(snmp_tab)
+                web_output = create_output_widget(web_tab)
+                nmap_output = create_output_widget(nmap_tab)
+
+                # Function to run commands and update UI
+                def run_analyses():
+                    ip_address = "192.168.0.100"  # You might want to make this configurable
+                    log_file = os.path.join(self.firmadyne_path, f"scratch/{image_name}/analyses.log")
+                    
+                    # Run emulation
+                    emulation_process = subprocess.Popen(
+                        [run_script_path],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    
+                    # Run SNMP analysis
+                    snmp_process = subprocess.Popen(
+                        [os.path.join(self.firmadyne_path, "analyses/snmpwalk.sh"), ip_address],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    
+                    # Run web access analysis
+                    web_process = subprocess.Popen(
+                        ["python3", os.path.join(self.firmadyne_path, "analyses/webAccess.py"), "1", ip_address, log_file],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    
+                    # Run NMAP scan
+                    nmap_process = subprocess.Popen(
+                        ["sudo", "nmap", "-O", "-sV", ip_address],
+                        stdout=subprocess.PIPE,
+                        stderr=subprocess.STDOUT,
+                        text=True
+                    )
+                    
+                    # Function to read output and update UI
+                    def update_output(process, output_widget):
+                        while True:
+                            line = process.stdout.readline()
+                            if not line:
+                                break
+                            output_widget.insert(tk.END, line)
+                            output_widget.see(tk.END)
+                            output_widget.update_idletasks()
+                        process.stdout.close()
+                    
+                    # Start threads to monitor each process output
+                    threading.Thread(target=update_output, args=(emulation_process, emulation_output), daemon=True).start()
+                    threading.Thread(target=update_output, args=(snmp_process, snmp_output), daemon=True).start()
+                    threading.Thread(target=update_output, args=(web_process, web_output), daemon=True).start()
+                    threading.Thread(target=update_output, args=(nmap_process, nmap_output), daemon=True).start()
+
+                # Start the analyses in a separate thread to keep UI responsive
+                threading.Thread(target=run_analyses, daemon=True).start()
+
+                self.status_var.set("Emulation and analyses running")
                 
             finally:
                 # Clean up temporary script
