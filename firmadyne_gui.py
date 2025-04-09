@@ -146,7 +146,7 @@ class FirmadyneGUI:
                 text=True
             )
             stdout, stderr = process.communicate(f"{self.sudo_password}\n")
-            print("Running command:", ' '.join(cmd)) 
+            print("Running command:", ' '.join(cmd))
             if "sudo: a password is required" in stderr:
                 messagebox.showerror("Error", "Incorrect sudo password")
                 self.sudo_password = None
@@ -212,7 +212,6 @@ export PGPASSWORD='{self.db_password}'
                     "-f", str(image_path)
                 ]
                 print("Running command:", ' '.join(tar2db_cmd))
-                
                 tar2db_result = subprocess.run(
                     tar2db_cmd,
                     capture_output=True,
@@ -242,61 +241,21 @@ export PGPASSWORD='{self.db_password}'
                 # Step 2: Create QEMU disk image
                 self.status_var.set("Creating QEMU image...")
                 self.root.update()
-                
-                make_image_cmd = [
-                    "sudo", "-S", 
-                    os.path.join(self.firmadyne_path, "scripts/makeImage.sh"),
-                    image_name
-                ]
+                image_name = self._get_image_number(image_path)
+                command = f'./scripts/makeImage.sh {image_name}'
+                p = os.system(f'echo {self.sudo_password} | sudo -S {command}')
 
-                print("Running command:", ' '.join(make_image_cmd))  
-
-                # Start the process
-                make_image_process = subprocess.Popen(
-                    make_image_cmd,
-                    stdin=subprocess.PIPE,
-                    stdout=subprocess.PIPE,
-                    stderr=subprocess.PIPE,
-                    text=True
-                )
+                print("Running command:", ' '.join(command))  
                 print("Sudo Pass:"+self.sudo_password+"\n")
                 print("Firmadyne Pass:"+self.db_password+"\n")
-                try:
-                    # Send password + newline
-                    stdout, stderr = make_image_process.communicate(input=f"{self.sudo_password}\n", timeout=120)
-                except subprocess.TimeoutExpired:
-                    print("Killed in try Block")
-                    make_image_process.kill()
-                    stdout, stderr = make_image_process.communicate()
-                    raise Exception("Process timed out!")
-
-                # ✅ NOW check the return code
-                print("Return code:", make_image_process.returncode)
-                print("STDERR:\n", stderr)
-
-                if make_image_process.returncode != 0:
-                    raise Exception(f"Failed to create QEMU image:\n{stderr}")
-
                 
                 
                 # Step 3: Infer network configuration
                 self.status_var.set("Inferring network config...")
                 self.root.update()
-                
-                infer_network_cmd = [
-                    os.path.join(self.firmadyne_path, "scripts/inferNetwork.sh"),
-                    image_name
-                ]
-                
-                infer_result = subprocess.run(
-                    infer_network_cmd,
-                    capture_output=True,
-                    text=True,
-                    cwd=self.firmadyne_path
-                )
-                
-                if infer_result.returncode != 0:
-                    raise Exception(f"Failed to infer network:\n{infer_result.stderr}")
+                image_name = self._get_image_number(image_path)
+                command2 = f'./scripts/inferNetwork.sh {image_name}'
+                p = os.system(f'echo {self.sudo_password} | sudo -S {command2}')
                 
                 # Step 4: Emulate firmware
                 self.status_var.set("Starting emulation...")
