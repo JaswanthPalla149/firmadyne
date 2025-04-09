@@ -2,47 +2,62 @@
 set -e
 set -x
 
-# Install dependencies
-sudo apt-get install -y busybox-static fakeroot git dmsetup kpartx netcat-openbsd nmap python3-psycopg2 snmp uml-utilities util-linux vlan postgresql wget qemu-system-arm qemu-system-mips qemu-system-x86 qemu-utils vim unzip
+# Update package lists
+sudo apt update
+sudo apt upgrade
+# Install required packages with -y flag
+sudo apt-get install -y busybox-static fakeroot git dmsetup kpartx netcat-openbsd nmap snmp \
+    python3-psycopg2 uml-utilities util-linux vlan python3-pip python3-magic
 
-# Create and Move to firmadyne directory, push the current directory into stack
-FIRMADYNE_INSTALL_DIR=/firmadyne
-mkdir $FIRMADYNE_INSTALL_DIR
-pushd $FIRMADYNE_INSTALL_DIR
+# Set python3 as default python
+sudo update-alternatives --install /usr/bin/python python /usr/bin/python3 10
 
-# Clone repos
-git clone https://github.com/ReFirmLabs/binwalk
+# Clone firmadyne
 git clone --recursive https://github.com/firmadyne/firmadyne.git
 
-# Set up binwalk
+# Create and Move to firmadyne directory, push the current directory into stack
+pushd firmadyne
+
+sudo apt install -y curl
+
+# Install Rust
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+source "$HOME/.cargo/env"
+
+# Clone and build binwalk
+git clone https://github.com/ReFirmLabs/binwalk
+sudo ./binwalk/dependencies/ubuntu.sh
 pushd binwalk
-# Automatically give "yes" as response for all the commands
-sudo ./deps.sh --yes
-sudo python3 ./setup.py install
-# Go into previous directory
+cargo build --release
 popd
+popd
+# Install and configure PostgreSQL
+sudo apt-get install -y postgresql
 
-# Install additional deps for file identification-jefferson extraction
-sudo pip3 install git+https://github.com/ahupp/python-magic
-sudo pip install git+https://github.com/sviehb/jefferson
-
-# Set up database
-sudo service postgresql start
-sudo -u postgres createuser firmadyne
+# Create firmadyne user and database
+echo "Creating PostgreSQL user and database..."
+sudo -u postgres createuser -P firmadyne
 sudo -u postgres createdb -O firmadyne firmware
-sudo -u postgres psql -d firmware < ./firmadyne/database/schema
-# Prints the command to alter the password of user firmadyne to "firmadyne" and then it pipelines the output to postgres line interface to change the password and executes it as postgres super user
-echo "ALTER USER firmadyne PASSWORD 'firmadyne'" | sudo -u postgres psql
 
-# Set up firmadyne
+# Import schema
+sudo -u postgres psql -d firmware < ./firmadyne/database/schema
+
+# Download firmadyne binaries
 pushd firmadyne
 ./download.sh
+popd
 
+# Install QEMU packages
+sudo apt-get install -y qemu-system-arm qemu-system-mips qemu-system-x86 qemu-utils
+# SetUp Environment configurations
+#FIRMADYNE_DIR="$(pwd)/firmadyne"
+#echo "DIR=$(pwd)" > "${FIRMADYNE_DIR}/.env"
+echo ""
+echo "Installation completed successfully!"
+echo "You may need to run 'source ~/.cargo/env' or restart your shell to access rust tools."
+echo "Don't forget to configure your firmadyne.config with the database credentials."
 # Set FIRMWARE_DIR in firmadyne.config
 # Sets up Environment Variable FIRMADYNE as $"pwd", then appends it as first line in firmadyne.config
 mv firmadyne.config firmadyne.config.orig
 echo -e '#!/bin/sh' "\nFIRMWARE_DIR=$(pwd)/" > firmadyne.config
 cat firmadyne.config.orig >> firmadyne.config
-
-# Make sure firmadyne user owns this dir
-sudo chown -R firmadyne:firmadyne $FIRMADYNE_INSTALL_DIR
