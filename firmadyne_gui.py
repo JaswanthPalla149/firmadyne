@@ -166,7 +166,8 @@ class FirmadyneGUI:
                 )
                 if not self.db_password:
                     return
-            
+            env = os.environ.copy()
+            env["PGPASSWORD"] = self.db_password
             # Analyze architecture
             self.status_var.set("Getting architecture...")
             self.root.update()
@@ -243,20 +244,28 @@ export PGPASSWORD='{self.db_password}'
                 self.root.update()
                 image_name = self._get_image_number(image_path)
                 command = f'./scripts/makeImage.sh {image_name}'
-                p = os.system(f'echo {self.sudo_password} | sudo -S {command}')
+                full_command = f'echo {self.sudo_password} | sudo -SE bash -c "{command}"'
+                p = subprocess.run(full_command, shell=True, env=env, capture_output=True, text=True)
 
-                print("Running command:", ' '.join(command))  
-                print("Sudo Pass:"+self.sudo_password+"\n")
-                print("Firmadyne Pass:"+self.db_password+"\n")
-                
+                print("Running command:", command)  
+                print("Sudo Pass:", self.sudo_password)
+                print("Firmadyne DB Pass:", self.db_password)
+                print("STDOUT:", p.stdout)
+                print("STDERR:", p.stderr)
+                print("Return code:", p.returncode)
                 
                 # Step 3: Infer network configuration
                 self.status_var.set("Inferring network config...")
                 self.root.update()
                 image_name = self._get_image_number(image_path)
                 command2 = f'./scripts/inferNetwork.sh {image_name}'
-                p = os.system(f'echo {self.sudo_password} | sudo -S {command2}')
-                
+                print("Running command:", command2) 
+                full_command2 = f'echo {self.sudo_password} | sudo -SE bash -c "{command2}"'
+                p = subprocess.run(full_command2, shell=True, env=env, capture_output=True, text=True)
+
+                print("STDOUT:", p.stdout)
+                print("STDERR:", p.stderr)
+                print("Return code:", p.returncode)
                 # Step 4: Emulate firmware
                 self.status_var.set("Starting emulation...")
                 self.root.update()
