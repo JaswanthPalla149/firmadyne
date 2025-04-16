@@ -34,10 +34,31 @@ popd
 # Install and configure PostgreSQL
 sudo apt-get install -y postgresql
 
+# # Create firmadyne user and database
+# echo "Creating PostgreSQL user and database..."
+# sudo -u postgres createuser -P firmadyne
+# sudo -u postgres createdb -O firmadyne firmware
+
 # Create firmadyne user and database
 echo "Creating PostgreSQL user and database..."
-sudo -u postgres createuser -P firmadyne
-sudo -u postgres createdb -O firmadyne firmware
+
+# Check if the 'firmadyne' user exists
+USER_EXISTS=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_roles WHERE rolname='firmadyne'")
+if [ "$USER_EXISTS" != "1" ]; then
+    echo "Creating user 'firmadyne'..."
+    sudo -u postgres createuser -P firmadyne
+else
+    echo "User 'firmadyne' already exists, skipping..."
+fi
+
+# Check if the 'firmware' database exists
+DB_EXISTS=$(sudo -u postgres psql -tAc "SELECT 1 FROM pg_database WHERE datname='firmware'")
+if [ "$DB_EXISTS" != "1" ]; then
+    echo "Creating database 'firmware'..."
+    sudo -u postgres createdb -O firmadyne firmware
+else
+    echo "Database 'firmware' already exists, skipping..."
+fi
 
 # Import schema
 sudo -u postgres psql -d firmware < ./firmadyne/database/schema
