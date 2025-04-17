@@ -2,6 +2,7 @@ import os
 import sys
 import subprocess
 import pexpect
+import time
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox, simpledialog
 from pathlib import Path
@@ -287,6 +288,46 @@ export PGPASSWORD='{self.db_password}'
                 # Create text widgets for each analysis output
                 notebook = ttk.Notebook(analysis_window)
                 notebook.pack(fill='both', expand=True)
+                # ================= TERMINAL TAB =================
+                terminal_tab = ttk.Frame(notebook)
+                notebook.add(terminal_tab, text="Terminal")
+
+                # Terminal output frame
+                terminal_frame = ttk.Frame(terminal_tab)
+                terminal_frame.pack(fill=tk.BOTH, expand=True, padx=10, pady=10)
+
+                # Terminal output display
+                terminal_text = tk.Text(
+                terminal_frame,
+                wrap=tk.WORD,
+                bg='black',
+                fg='white',
+                insertbackground='white',
+                font=('Courier', 10)
+                )
+                terminal_scroll = ttk.Scrollbar(terminal_frame, command=terminal_text.yview)
+                terminal_text.config(yscrollcommand=terminal_scroll.set)
+                terminal_text.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+                terminal_scroll.pack(side=tk.RIGHT, fill=tk.Y)
+
+                # Terminal control buttons
+                term_button_frame = ttk.Frame(terminal_tab)
+                term_button_frame.pack(fill=tk.X, padx=10, pady=5)
+
+                stop_button = ttk.Button(
+                term_button_frame,
+                text="Stop Emulation",
+                command=lambda: self._stop_emulation(analysis_window)
+                )
+                stop_button.pack(side=tk.LEFT, padx=5)
+
+                clear_button = ttk.Button(
+                    term_button_frame,
+                    text="Clear Terminal",
+                    command=lambda: terminal_text.delete(1.0, tk.END)
+                )
+                clear_button.pack(side=tk.LEFT, padx=5)
+                
 
                 # Frames for each analysis tab
                 emulation_tab = tk.Frame(notebook)
@@ -315,6 +356,8 @@ export PGPASSWORD='{self.db_password}'
                 web_output = create_output_widget(web_tab)
                 nmap_output = create_output_widget(nmap_tab)
 
+                self.emulation_process = None
+
                 # Function to run commands and update UI
                 def run_analyses():
                     ip_address = "192.168.0.100"  # You might want to make this configurable
@@ -327,7 +370,7 @@ export PGPASSWORD='{self.db_password}'
                         stderr=subprocess.STDOUT,
                         text=True
                     )
-                   
+                    self.emulation_process = emulation_process 
                     # Run SNMP analysis
                     snmp_process = subprocess.Popen(
                         [os.path.join(self.firmadyne_path, "analyses/snmpwalk.sh"), ip_address],
@@ -354,25 +397,82 @@ export PGPASSWORD='{self.db_password}'
                    
                     # Function to read output and update UI
                     def update_output(process, output_widget):
+                        line = process.stdout.readline()
                         while True:
-                            line = process.stdout.readline()
-                            if not line:
+                            if not line and process.poll() is not None:
+                                    break
+                            if line:
                                 break
                             output_widget.insert(tk.END, line)
                             output_widget.see(tk.END)
                             output_widget.update_idletasks()
                         process.stdout.close()
-                   
+                       
+                   # Helper method to monitor process output
+                    def _monitor_process_output(self, process, output_widget):
+                            def update_output():
+                                while True:
+                                    line = process.stdout.readline()
+                                    if not line and process.poll() is not None:
+                                        break
+                                    if line:
+                                        output_widget.insert(tk.END, line)
+                                        output_widget.see(tk.END)
+                                        output_widget.update_idletasks()
+                                process.stdout.close()
                     # Start threads to monitor each process output
                     threading.Thread(target=update_output, args=(emulation_process, emulation_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(snmp_process, snmp_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(web_process, web_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(nmap_process, nmap_output), daemon=True).start()
+                    def monitor_process_output(process, output_widget):
+                        try:
+                            while True:
+                                line = process.stdout.readline()
+                                if not line and process.poll() is not None:  # Process ended
+                                    break
+                                if line:
+                                    output_widget.insert(tk.END, line)
+                                    output_widget.see(tk.END)
+                                    output_widget.update_idletasks()
+                        except ValueError:  # Catch "I/O on closed file"
+                            output_widget.insert(tk.END, "\n[Process terminated unexpectedly]\n")
+                    monitor_process_output(emulation_process, emulation_output)
+                    monitor_process_output(snmp_process, snmp_output)
+                    monitor_process_output(web_process, web_output)
+                    monitor_process_output(nmap_process, nmap_output)
 
                 # Start the analyses in a separate thread to keep UI responsive
                 threading.Thread(target=run_analyses, daemon=True).start()
+                # Terminal input entry field
+                terminal_input = ttk.Entry(term_button_frame, width=80)
+                terminal_input.pack(side=tk.LEFT, fill=tk.X, expand=True)
+                # Terminal input handling
+                def send_terminal_input(event=None):
+                        user_input = terminal_input.get()
+                        if self.emulation_process and self.emulation_process.stdin:
+                            try:
+                                self.emulation_process.stdin.write(user_input + "\n")
+                                self.emulation_process.stdin.flush()
+                            except Exception as e:
+                                messagebox.showerror("Terminal Error", f"Failed to send input: {e}")
+                        terminal_input.delete(0, tk.END)
+                terminal_input.bind("<Return>", send_terminal_input) 
+                # Window close handler
+                def on_analysis_window_close():
+                    try:
+                         if messagebox.askokcancel("Quit", "Stop emulation and close this window?"):
+                                if self.emulation_process and self.emulation_process.poll() is None:
+                                    self.emulation_process.terminate()
+                                    time.sleep(1)
+                                    if self.emulation_process.poll() is None:
+                                        self.emulation_process.kill()
+                                #self._stop_emulation(analysis_window)
+                                if analysis_window.winfo_exists():
+                                    analysis_window.destroy()
+                    except Exception as e:
+                                    messagebox.showerror("Error", f"Error during shutdown: {str(e)}")
 
-                self.status_var.set("Emulation and analyses running")
                
             finally:
                 # Clean up temporary script
