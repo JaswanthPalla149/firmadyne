@@ -36,7 +36,12 @@ class FirmadyneGUI:
             messagebox.showerror("Error", f"Missing directories:\n{', '.join(missing)}")
             self.root.destroy()
             sys.exit(1)
-   
+    def _stop_emulation(self):
+        if self.emulation_process and self.emulation_process.poll() is None:
+                                    self.emulation_process.terminate()
+                                    time.sleep(1)
+                                    if self.emulation_process.poll() is None:
+                                        self.emulation_process.kill()
     def _create_widgets(self):
         """Setup GUI components"""
         main_frame = ttk.Frame(self.root, padding="10")
@@ -313,11 +318,11 @@ export PGPASSWORD='{self.db_password}'
                 # Terminal control buttons
                 term_button_frame = ttk.Frame(terminal_tab)
                 term_button_frame.pack(fill=tk.X, padx=10, pady=5)
-
+               
                 stop_button = ttk.Button(
                 term_button_frame,
                 text="Stop Emulation",
-                command=lambda: self._stop_emulation(analysis_window)
+                command=lambda: self._stop_emulation()
                 )
                 stop_button.pack(side=tk.LEFT, padx=5)
 
@@ -395,53 +400,22 @@ export PGPASSWORD='{self.db_password}'
                         text=True
                     )
                    
-                    # Function to read output and update UI
+                   # Function to read output and update UI
                     def update_output(process, output_widget):
-                        line = process.stdout.readline()
                         while True:
-                            if not line and process.poll() is not None:
-                                    break
-                            if line:
+                            line = process.stdout.readline()
+                            if not line:
                                 break
                             output_widget.insert(tk.END, line)
                             output_widget.see(tk.END)
                             output_widget.update_idletasks()
                         process.stdout.close()
-                       
-                   # Helper method to monitor process output
-                    def _monitor_process_output(self, process, output_widget):
-                            def update_output():
-                                while True:
-                                    line = process.stdout.readline()
-                                    if not line and process.poll() is not None:
-                                        break
-                                    if line:
-                                        output_widget.insert(tk.END, line)
-                                        output_widget.see(tk.END)
-                                        output_widget.update_idletasks()
-                                process.stdout.close()
+                   
                     # Start threads to monitor each process output
                     threading.Thread(target=update_output, args=(emulation_process, emulation_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(snmp_process, snmp_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(web_process, web_output), daemon=True).start()
                     threading.Thread(target=update_output, args=(nmap_process, nmap_output), daemon=True).start()
-                    def monitor_process_output(process, output_widget):
-                        try:
-                            while True:
-                                line = process.stdout.readline()
-                                if not line and process.poll() is not None:  # Process ended
-                                    break
-                                if line:
-                                    output_widget.insert(tk.END, line)
-                                    output_widget.see(tk.END)
-                                    output_widget.update_idletasks()
-                        except ValueError:  # Catch "I/O on closed file"
-                            output_widget.insert(tk.END, "\n[Process terminated unexpectedly]\n")
-                    monitor_process_output(emulation_process, emulation_output)
-                    monitor_process_output(snmp_process, snmp_output)
-                    monitor_process_output(web_process, web_output)
-                    monitor_process_output(nmap_process, nmap_output)
-
                 # Start the analyses in a separate thread to keep UI responsive
                 threading.Thread(target=run_analyses, daemon=True).start()
                 # Terminal input entry field
